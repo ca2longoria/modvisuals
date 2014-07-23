@@ -1,0 +1,714 @@
+
+<head>
+<script type='text/javascript' src='sprintf.js'></script>
+<script type='text/javascript' src='stacky.js'></script>
+<script type='text/javascript'>
+
+function $toarr(a)
+{
+	var ret = [];
+	for (var i=0; i < a.length; ++i)
+		ret.push(a[i]);
+	return ret;
+}
+
+function queryChildren(n,query)
+{
+	var ret = [];
+	var origID = n.id;
+	
+	n.id = ('a'+Math.random()).replace(/\./g,'');
+	var these = document.querySelectorAll('#'+n.id+' '+query);
+	for (var i=0; i < these.length; ++i)
+		ret.push(these[i]);
+	n.id = origID;
+	
+	return ret;
+}
+
+function InputFactory(ob,path)
+{
+	console.log('InputFactory:',ob,path);
+	
+	path = (typeof path === 'undefined' ? [] : path);
+	
+	var factoryObject = {};
+	this.object = function(){ return factoryObject; };
+	
+	var ifac = this;
+	this.render = function()
+	{
+		var ret = document.createElement('div');
+		ret.className = 'inputfactory';
+		ret.style.display = 'inline-block';
+		ret.style.verticalAlign = 'text-top';
+		
+		for (var p in ob)
+		{
+			var a = ob[p];
+			var what;
+			if (typeof a === 'object')
+			{
+				what = new InputFactory(a,path+[p]).render();
+				factoryObject[p] = {};
+			}
+			else if (a == 'text')
+			{
+				what = document.createElement('input');
+				what.type = 'text';
+				
+				what.addEventListener('change',(function(ob,p){ return function(e)
+				{
+					console.log('just so you know... ob,p:',ob,p);
+					console.log('setting what was ('+ob[p]+') to ('+this.value+')');
+					ob[p] = this.value;
+				}})(factoryObject,p));
+				
+				factoryObject[p] = what.value;
+			}
+			
+			// Add field name.
+			var span = document.createElement('span');
+			span.innerHTML = p+':';
+			ret.appendChild(span);
+			
+			// Add input field.
+			ret.appendChild(what);
+			ret.appendChild(document.createElement('br'));
+			
+			what.someProperty = 'what a property, man!';
+		}
+		
+		ret.creator = ifac;
+		return ret;
+	};
+}
+
+function interpretExpression(s)
+{
+	//console.log('interpretExpression:',s);
+	var c = s[0];
+	var ret;
+	
+	if (s.length == 1)
+	{
+		//console.log('come on, now:',c,c.length);
+		return {
+			a:function(stack,params)
+			{ stack.push(params.row); return params.row; },
+			b:function(stack,params)
+			{ stack.push(params.col); return params.col },
+			c:function(stack,params)
+			{ stack.push(params.val); return params.val },
+			n:function(stack,params)
+			{ return stack.push(params.node.innerHTML) },
+			'@':function(stack,params)
+			{
+				var i = stack.pop();
+				var j = stack.pop();
+				var ret;
+				
+				if (i < 0 || i >= params.data.length)
+					ret = 0;
+				else if (j < 0 || j >= params.data[0].length)
+					ret = 0;
+				else
+					ret = params.data[i][j];
+				
+				return stack.push(ret);
+			}
+		}[c];
+	}
+	
+	return function(stack,params){console.log('WHAT!?'); return stack.push(null)};
+}
+stackyTable = {};
+
+selectModifiers =
+{
+	'':function(row,col,n,val,param)
+	{
+		n.className = '';
+		n.style.backgroundColor = null;
+		if (n.innerHTML != val)
+			n.innerHTML = val;
+	},
+	'current base':function(row,col,n,val,param)
+	{
+		n.style.backgroundColor = 'rgba(255,0,0,'+(val/parseFloat(col))+')';
+	},
+	'top base':function(row,col,n,val,param)
+	{
+		n.style.backgroundColor = 'rgba(255,0,0,'+(val/parseFloat(dataArray.length))+')';
+	},
+	'green zeros':function(row,col,n,val,param)
+	{
+		if (val == 0)
+			n.style.backgroundColor = 'green';
+	},
+	'color matches':function(row,col,n,val,param)
+	{
+		var matchVals = (param ? param.match : '').split(/;[ \t\n]*/);
+		var colors = (param ? param.color : '').split(/[,; \t\n][ \t\n]*/);
+		
+		//console.log('matchVals:',matchVals);
+		for (var i=0; i < matchVals.length; ++i)
+		{
+			var expression = matchVals[i];
+			
+			// NOTE: Should stackyTable initialization really go here...?
+			var stacky = stackyTable[expression];
+			if (!stacky)
+			{
+				console.log('new Stacky!');
+				stacky = new Stacky(expression,interpretExpression);
+				stackyTable[expression] = stacky;
+			}
+			
+			try {
+				var res = stacky.evaluate({
+					row:row,
+					col:col,
+					val:val,
+					node:n,
+					data:dataArray
+				});
+				//console.log('stacky res up in here:',res);
+			} catch (e)
+			{
+				console.log('ERROR:',e.name);
+				console.log(e.message);
+				return;
+			}
+			
+			if (typeof res === 'boolean' && res)
+				if (i >= colors.length)
+					n.style.backgroundColor = colors[colors.length-1];
+				else
+					n.style.backgroundColor = colors[i];
+			else if (typeof res === 'number')
+				n.innerHTML = res;
+		}
+	},
+	'color multiples':function(row,col,n,val,param)
+	{
+		var matchVals = (param ? param.value : '0').split(/[,; \t\n][ \t\n]*/);
+		var colors = (param ? param.color : 'green').split(/[,; \t\n][ \t\n]*/);
+		
+		for (var i=0; i < matchVals.length; ++i)
+		{
+			if (val % matchVals[i] == 0)
+				if (i >= colors.length)
+					n.style.backgroundColor = colors[colors.length-1];
+				else
+					n.style.backgroundColor = colors[i];
+		}
+	},
+	'color values':function(row,col,n,val,param)
+	{
+		var matchVals = (param ? param.value : '0').split(/[,; \t\n][ \t\n]*/);
+		var colors = (param ? param.color : 'green').split(/[,; \t\n][ \t\n]*/);
+		
+		for (var i=0; i < matchVals.length; ++i)
+		{
+			if (val == matchVals[i])
+				if (i >= colors.length)
+					n.style.backgroundColor = colors[colors.length-1];
+				else
+					n.style.backgroundColor = colors[i];
+		}
+	}
+}
+
+selectOptionTemplates =
+{
+	'color matches': {
+		match:'text',
+		color:'text',
+	},
+	'color multiples': {
+		value:'text',
+		color:'text'
+	},
+	'color values': {
+		value:'text',
+		color:'text'
+	}
+}
+
+
+dataArray = null;
+
+function showRelatedThing(key,relatedNode)
+{
+	console.log('showRelatedThing:',key,relatedNode);
+	
+	var selparams = document.querySelector('.toprow #selparams');
+	selparams.innerHTML = '';
+	
+	var template = selectOptionTemplates[key];
+	if (!template)
+		return false;
+	
+	var ifac = new InputFactory(template);
+	
+	var idiv = ifac.render();
+	var div = document.createElement('div');
+	
+	idiv.style.left = 0;
+	idiv.style.top = 4;
+	
+	idiv.style.position = 'absolute';
+	idiv.style.width = '100%';
+	div.appendChild(idiv);
+	
+	div.style.display = 'inline-block';
+	div.style.position = 'relative';
+	div.style.width = 200;
+	div.style.height = 20;
+	
+	var inputs = $toarr(idiv.childNodes);
+	console.log('inputs:',inputs);
+	
+	for (var i=0; i < inputs.length; ++i)
+	{
+		var n = inputs[i];
+		console.log('init input for sessionStorage',sessionStorage);
+		n.value = sessionStorage.getItem('RelatedThing:'+key+i);
+		
+		var onchangeEvent = document.createEvent('HTMLEvents');
+		onchangeEvent.initEvent('change',true,true);
+		n.dispatchEvent(onchangeEvent);
+		
+		n.addEventListener('change',(function(n,index){return function()
+		{
+			sessionStorage.setItem('RelatedThing:'+key+index,n.value);
+			console.log('changed input for sessionStorage',sessionStorage);
+		}})(n,i));
+	};
+	
+	selparams.appendChild(div);
+	return true;
+}
+
+function updateSelectModifiers()
+{
+	var selmod = document.querySelector('.toprow select');
+	
+	for (var p in selectModifiers)
+	{
+		var option = document.createElement('option');
+		option.value = p;
+		option.innerHTML = p;
+		selmod.appendChild(option);
+	}
+}
+
+function squareMap(a,b,op)
+{
+	a = parseInt(a);
+	b = parseInt(b);
+	var arrs = [];
+	for (var i=a; i < b; ++i)
+	{
+		var arr = [];
+		for (var j=a; j < b; ++j)
+			arr.push(op(i,j));
+		arrs.push(arr);
+	}
+	return arrs;
+}
+
+function updatePercent(val)
+{
+	var perc = document.querySelector('.toprow .percent');
+	
+	if (!val)
+		perc.innerHTML = '';
+	else
+		perc.innerHTML = '' + Math.floor(val * 100) + '%';
+}
+
+function initRendering(x,y,op,modify,param)
+{
+	console.log('initRendering',x,y);
+	
+	op = (typeof op !== 'undefined' ? op : function(a,b){return a % b;});
+	
+	var rend = document.querySelector('#rendering');
+	
+	var smap = squareMap(x,y,op);
+	dataArray = smap;
+	
+	rend.innerHTML = '';
+	var perc = 0;
+	var handle = setInterval(function(){updatePercent(perc)},1);
+	
+	var i = 0;
+	var rows = [];
+	var startTime = new Date().getTime();
+	
+	var handle2 = setInterval(function(){
+		if (i >= smap.length)
+		{
+			clearInterval(handle);
+			updatePercent(1);
+			clearInterval(handle2);
+			
+			var endTime = new Date().getTime();
+			var totalSeconds = (endTime-startTime)/1000.;
+			var totalEntries = dataArray.length*dataArray[0].length/2;
+			console.log('totalTime:',totalSeconds);
+			console.log('  for',totalEntries,'entries');
+			console.log('   at',totalEntries/totalSeconds,'entries per second.');
+			console.log('  and',(totalSeconds/totalEntries*1000).toFixed(2),'milliseconds per entry.');
+			rows.map(function(row){rend.appendChild(row)});
+			
+			return;
+		}
+		
+		var arr = smap[i];
+		var row = document.createElement('div');
+		row.className = 'row';
+		
+		for (var j in arr)
+		{
+			j = parseFloat(j);
+			var val = arr[j];
+			var span = document.createElement('span');
+			span.innerHTML = (parseFloat(val) != parseInt(val) ? parseFloat(val).toFixed(2) : parseInt(val));
+			
+			if (j <= i)
+			{
+				if (modify)
+					modify(i,j,span,val,param);
+				
+				var nval = parseFloat(span.innerHTML);
+				
+				if (isNaN(nval))
+				{
+					span.classList.add('invalidentry','nonreal');
+					span.innerHTML = 'NaN';
+				}
+				else if (nval == Number.POSITIVE_INFINITY)
+				{
+					span.classList.add('nonreal');
+					span.innerHTML = '&infin;';
+				}
+				else if (nval == Number.NEGATIVE_INFINITY)
+				{
+					span.classList.add('nonreal');
+					span.innerHTML = '<b>-&infin;</b>';
+				}
+				else
+					span.innerHTML = (nval != Math.floor(nval) ? nval.toFixed(2) : Math.floor(nval));
+			}
+			else
+			{
+				span.classList.add('invalidentry');
+			}	
+			
+			row.appendChild(span);
+			
+			perc = ((i*smap[0].length)+j)/(smap[0].length*smap.length);
+			//console.log(((i*smap[0].length)+j),'/',(smap[0].length*smap.length),perc);
+		}
+		rows.push(row);
+		
+		i += 1;
+	},0);
+	
+	rend.addEventListener('click',function(e)
+	{
+		if (e.button == 2)
+		{ e.preventDefault(); return false; }
+	},true);
+	
+	rend.addEventListener('contextmenu',function(e)
+	{
+		e.preventDefault();
+		return false;
+	},true);
+	
+	dataArray = smap;
+}
+
+function initScratchpad()
+{
+	var scratchpad = document.querySelector('.toprow #scratchpad');
+	var tarea = document.querySelector('.toprow #scratchpad textarea');
+	var expando = document.querySelector('.toprow #scratchpad .expandobar');
+	var button = document.querySelector('.toprow #scratchpad input[type=button]');
+	
+	button.addEventListener('click',function(e)
+	{
+		var relatedThing = document.querySelector('#selparams .inputfactory');
+		if (!relatedThing)
+			return;
+		
+		var s = tarea.value;
+		var sind = tarea.selectionStart;
+		var eind = sind;
+		
+		while (s[--sind] != '\n' && sind >= 0)
+			console.log(s[sind]);
+		++sind;
+		console.log('start vs beginning of current line:',tarea.selectionStart,sind);
+		
+		while (s[eind++] != '\n' && eind <= s.length)
+			console.log(s[eind]);
+		--eind;
+		console.log('start vs end of current line:',tarea.selectionStart,eind);
+		
+		var inputs = $toarr(relatedThing.childNodes)
+			.filter(function(n){return n.tagName == 'INPUT'})
+			.filter(function(n)
+			{ return typeof n.value !== 'undefined' && n.value.length !== 'undefined' });
+		
+		console.log('inputs:',inputs);
+		
+		var lines = s.slice(sind).split('\n').slice(0,inputs.length);
+		console.log('lines:',lines);
+		
+		for (var i=0; i < lines.length && i < inputs.length; ++i)
+		{
+			inputs[i].value = lines[i];
+			
+			// NOTE: This *definitely* needs to be put somewhere accessible.
+			var e = document.createEvent('HTMLEvents');
+			e.initEvent('change',true,true);
+			inputs[i].dispatchEvent(e);
+		}
+		
+	},true);
+}
+
+function onLoad()
+{
+	var xbox = document.querySelector('.toprow input[type=text]:nth-of-type(1)');
+	var ybox = document.querySelector('.toprow input[type=text]:nth-of-type(2)');
+	var evalButton = document.querySelector('.toprow input[type=button]');
+	var selmod = document.querySelector('.toprow select');
+	var selsubmit = document.querySelectorAll('.toprow > input[type=button]')[1];
+	var scratchpad = document.querySelector('.toprow #scratchpad');
+	var rend = document.querySelector('#rendering');
+	
+	if (localStorage.getItem('xbox'))
+		xbox.value = localStorage.getItem('xbox');
+	if (localStorage.getItem('ybox'))
+		ybox.value = localStorage.getItem('ybox');
+	
+	xbox.addEventListener('change',function(){localStorage.setItem('xbox',xbox.value)});
+	ybox.addEventListener('change',function(){localStorage.setItem('ybox',ybox.value)});
+	
+	if (localStorage.getItem('scratchpad'))
+		queryChildren(scratchpad,'textarea')[0].value = localStorage.getItem('scratchpad');
+	
+	queryChildren(scratchpad,'textarea')[0].addEventListener('change',
+		function(){localStorage.setItem('scratchpad',this.value)});
+	
+	evalButton.addEventListener('click',function()
+	{
+		var x = xbox.value;
+		var y = ybox.value;
+		
+		// NOTE: This is duplicated here, from the later doEet temp function.
+		var modify = selectModifiers[selmod.value];
+		var ifacDiv = document.querySelector('.toprow #selparams .inputfactory');
+		var param = (ifacDiv ? ifacDiv.creator.object() : undefined);
+		
+		updatePercent();
+		initRendering(
+			x,y,
+			function(a,b){return a % b;},
+			modify,
+			param);
+	});
+	
+	var doEet;
+	selsubmit.addEventListener('click',doEet=function()
+	{
+		if (!dataArray)
+			return;
+		
+		var modify = selectModifiers[selmod.value];
+		var ifacDiv = document.querySelector('.toprow #selparams .inputfactory');
+		var param = (ifacDiv ? ifacDiv.creator.object() : undefined);
+		
+		console.log('doEet param:',param);
+		for (var i in dataArray)
+		{
+			var row = rend.childNodes[i];
+			//console.log('row:',i,row);
+			for (var j in dataArray[0])
+				modify(i,j,row.childNodes[j],dataArray[i][j],param);
+		}
+	});
+	
+	selmod.addEventListener('change',function()
+	{
+		if (!showRelatedThing(selmod.value,selmod))
+			doEet();
+	});
+	
+	updatePercent();
+	updateSelectModifiers();
+	
+	initScratchpad();
+	
+	// Set toggle action for all expandobars.
+	var expandos = document.querySelectorAll('.expandobar');
+	for (var i=0; i < expandos.length; ++i)
+	{
+		var n = expandos[i];
+		var next = n;
+		while ((next=next.nextSibling).nodeType == 3);
+		if (n == next)
+			next = undefined;
+		
+		n.addEventListener('click',function(e)
+		{
+			if (e.target != n)
+				return;
+			
+			console.log('oik!',next.style.display);
+			if (next.style.display == 'none' || next.style.display.length == 0)
+				next.style.display = 'block';
+			else
+				next.style.display = 'none';
+		});
+		n.addEventListener('mousedown',function(e){e.preventDefault();return false;},false);
+	};
+}
+
+</script>
+
+<style type='text/css'>
+:not(.inputfactory) > .inputfactory {
+	border:1px solid #aaa;
+	padding-top:4px;
+	padding-left:4px;
+	background-color:white;
+}
+.inputfactory > .inputfactory {
+	border:none;
+	border-top:1px solid #bbb;
+	margin-top:4px;
+}
+.inputfactory > span {
+	display:inline-block;
+	width:40px;
+	padding-right:4px;
+	text-align:left;
+}
+
+.toprow {
+	height:30px;
+}
+.toprow > input[type=text] {
+	width:50px;
+	padding-left:4px;
+	padding-right:4px;
+}
+.toprow > input[type=button] {
+	width:100px;
+	margin-left:5px;
+}
+.toprow .percent {
+	display:inline-block;
+	width:40px;
+}
+.toprow select {
+	width:100px;
+}
+.toprow #selparams {
+	position:relative;
+	display:inline-block;
+	width:220px;
+	height:22px;
+	white-space:nowrap;
+}
+.toprow #scratchpad {
+	position:relative;
+	display:inline-block;
+	width:500px;
+	height:28px;
+}
+.toprow #scratchpad textarea {
+	position:absolute;
+	display:none;
+	min-width:500px;
+	max-width:500px;
+	min-height:400px;
+	margin-left:0px;
+	top:24px;
+}
+.toprow .expandobar {
+	background-color:#eee;
+	border:1px solid #eee;
+	height:22px%;
+}
+.toprow #scratchpad .expandobar:hover {
+	border:1px solid #ccc;
+}
+
+.invalidentry {
+	background-color:#333;
+	color:#888;
+}
+.nonreal {
+	color:red;
+}
+.invalidentry.nonreal {
+	color:#c88;
+}
+
+#rendering {
+	display:inline-block;
+	white-space:nowrap;
+	border-left:1px solid #eee;
+	border-top:1px solid #ddd;
+}
+#rendering .row {
+	font-family:Tahoma;
+	font-size:8px;
+}
+#rendering .row span {
+	display:inline-block;
+	width:16px;
+	height:16px;
+	line-height:15px;
+	border-right:1px solid #eee;
+	border-bottom:1px solid #ddd;
+	text-align:center;
+}
+</style>
+
+</head>
+
+
+<body onload='onLoad()'>
+	<div class='toprow'>
+		<input id='xCount' type='text' placeholder='x'/>
+		by
+		<input id='yCount' type='text' placeholder='y'/>
+		<input type='button' value='Eval'/>
+		<span class='percent'></span>
+		<select id='selectmodify'>
+			
+		</select>
+		<input type='button' value='Apply'/>
+		<div id='selparams'></div>
+		<div id='scratchpad'>
+			<div class='expandobar'>
+				Scratchpad
+				<input type='button' value='<<---'/>
+			</div>
+			<textarea spellcheck=false></textarea>
+		</div>
+	</div>
+	<br>
+	<div id='rendrows'></div>
+	<div id='rendering'></div>
+	
+</body>
