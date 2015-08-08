@@ -79,10 +79,10 @@ All mods.html functions/operators evaluated through stacky.js' interpreter abili
 - b : current column
 - c : current value
 - n : current... node's string value?
-- @ (number, number) : value of cell i,j or x,y, or row,col or something, relative to current row,col
+- @ (number, number) : value of cell i,j or x,y, or row,col or something
 
 ```
-+ c @ 0 -1
++ c @ - a 1 b
 ```
-The above ought result in the addition of the current mod value to that of the cell one above.  Play around with it.
+The above ought result in the addition of the current mod value to that of the cell one above.  Imagine it as "(c + @(a -1, b))".  Play around with it.
 
